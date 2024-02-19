@@ -1,58 +1,76 @@
-# YouTube Chrome Bookmarks Music Downloader
-This Python script downloads music files from your Chrome bookmarks, fetches metadata from Spotify, 
-and adds the metadata to the downloaded music files.
+# Music Downloader
+
+Music Downloader is a Python script that allows you to download music from Chrome bookmarks and automatically add 
+metadata to the downloaded music files using the Spotify API.
 
 
 ## Features
-- Take YouTube urls from a Chrome bookmark folder
-- Download the musics using `yt_dlp` (fork of `youtube-dl`)
-- Convert them in mp3 using the `ffmpeg` program
-- Edit metadata using `eyed3` and `mutagen`
-- Add new metadata using Spotify API with the `spotipy` module
+
+- Downloads music from Chrome bookmarks.
+- Retrieves metadata for downloaded music from the Spotify API.
+- Adds metadata including title, artist, album, year, and cover image to downloaded music files.
+- Supports customization of music naming convention extraction method.
 
 
 ## Notes
-- The script assumes a specific naming convention for music files in Chrome bookmarks in the form: `artist - title` (e.g., Daft Punk - Around the world)
-- Make sure to have proper permissions to read the Chrome bookmarks file.
-- This script is specifically designed for `Chrome` on `Windows` (as far as I created it and used it).
+
+- This program is designed to work with Chrome bookmarks on Windows.
+- It requires a Spotify API key (free) for the metadata.
 
 
 ## Prerequisites
-Before running the script, ensure you have the following:
 
-- Python 3.6+ installed
-- Install required Python packages using the following command:
+Before you begin, ensure you have met the following requirements:
 
+- Python 3.9+
+- Spotify API credentials (client ID and client secret)
+- `ffmpeg` installed and added to the system path
+
+
+## Installation
+
+1. Clone the repository and install dependencies
 ```bash
+git clone https://github.com/Crossoufire/music_bookmark_ddl.git
+cd music_bookmark_ddl
 pip install -r requirements.txt
 ```
 
-#### FFMPEG Installation
-- Using WSL2 (meaning that your python script will also run through WSL2):
-```bash
-sudo apt install ffmpeg
+2. Set up your environment variables by creating a `.env` file in the root directory
 ```
+SPOTIFY_CLIENT_ID=<your_spotify_client_id>
+SPOTIFY_CLIENT_SECRET=<your_spotify_client_secret>
 
-- Without WSL2: Download FFMPEG and set its path in the Python script:
-```env
-YOUTUBE_DL_OPTIONS["ffmpeg_location"]
-``` 
+FFMPEG_LOCATION=<your_ffmpeg_location> (default: "/usr/bin/ffmpeg")
+CHROME_BOOKMARK_PATH=<path_to_your_chrome_bookmark_json_file>
 
-
-## Configuration
-Create a .env file with the following:
-
-```env
-SPOTIFY_CLIENT_ID=your_client_id
-SPOTIFY_CLIENT_SECRET=your_client_secret
-CHROME_BOOKMARK_PATH=/path/to/your/chrome/bookmarks.json
+MUSIC_DIRECTORY=<path_to_your_music_directory> (default: "downloaded_musics")
+MUSIC_BOOKMARK_POSITION=<position_in_bookmark> (default: 0)
+MUSIC_SEPARATION=<separation_token_in_the_bookmark> (default: " - ")
+MUSIC_ARTIST_POSITION=<artist_position_after_splitting> (default: 0)
+MUSIC_TITLE_POSITION=<title_position_after_splitting> (default: 1)
 ```
+3. Customize the `config.py` file according to your preferences
 
-
-## Usage
-- Run the script using:
-```bash
+4. Run the script
+```
 python music_downloader.py
 ```
-- Enter the position of your 'music' folder in your Chrome bookmarks when prompted.
-- The script will download music files, fetch metadata from Spotify, and add the metadata to the downloaded files.
+
+## Example
+- If your files are named `artist - title` (e.g., `sum 41 - in to deep`), the configuration would be
+```
+MUSIC_SEPARATION=" - "
+MUSIC_ARTIST_POSITION=0
+MUSIC_TITLE_POSITION=1
+```
+- If your files are named `title ; artist` (e.g., `shadow of the day ; Linkin Park`), the configuration would be
+```
+MUSIC_SEPARATION=" ; "
+MUSIC_ARTIST_POSITION=1
+MUSIC_TITLE_POSITION=0
+```
+
+## Usage
+- Ensure your Chrome bookmarks contain a folder with music URLs following the correct pattern (ex: 'artist - title')
+- Run the script, and it will download the music files, retrieve metadata, and add it to the files automatically.

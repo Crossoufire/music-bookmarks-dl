@@ -1,5 +1,7 @@
 from __future__ import unicode_literals
+import sys
 import json
+import logging
 import os
 import urllib.request
 from typing import Dict, List, Any
@@ -12,31 +14,34 @@ from dotenv import load_dotenv
 from mutagen.mp3 import MP3
 from spotipy.oauth2 import SpotifyClientCredentials
 from tqdm import tqdm
+from config import Config
 
 
 """ --- PARAMETERS ------------------------------------------------------------------------------------------ """
 
+# Load configuration
+config = Config()
+
 # Suppress non-error warnings from eyed3 library
 eyed3.log.setLevel("ERROR")
 
-# Load environment variables from .env file
+# Load environment variables from <.env> file
 load_dotenv()
 
 # Spotify API configuration using environment variables
-SPOTIFY_CLIENT_ID = os.environ["SPOTIFY_CLIENT_ID"]
-SPOTIFY_CLIENT_SECRET = os.environ["SPOTIFY_CLIENT_SECRET"]
 SP = spotipy.Spotify(
     auth_manager=SpotifyClientCredentials(
-        client_id=SPOTIFY_CLIENT_ID,
-        client_secret=SPOTIFY_CLIENT_SECRET
+        client_id=config.SPOTIFY_CLIENT_ID,
+        client_secret=config.SPOTIFY_CLIENT_SECRET,
     )
 )
 
 # Options for youtube-dl, specifying audio format and post-processing settings
 YOUTUBE_DL_OPTIONS = {
-    "ffmpeg_location": "/usr/bin/ffmpeg",
+    "ffmpeg_location": config.FFMPEG_LOCATION,
     "format": "bestaudio/best",
     "extractaudio": True,
+    "quiet": True,
     "postprocessors": [{
         "key": "FFmpegExtractAudio",
         "preferredcodec": "mp3",
@@ -44,11 +49,21 @@ YOUTUBE_DL_OPTIONS = {
     }]}
 
 # Default path for downloading music files
-MUSIC_DIR = "downloaded_musics"
+MUSIC_DIR = config.MUSIC_DIRECTORY
 os.makedirs(MUSIC_DIR, exist_ok=True)
 
 # Default path for Chrome bookmarks
-PATH = os.environ["CHROME_BOOKMARK_PATH"]
+PATH = config.CHROME_BOOKMARK_PATH
+
+# Create logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Set up console handler to send logs to stdout
+console_handler = logging.StreamHandler(stream=sys.stdout)
+formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
 
 """ --------------------------------------------------------------------------------------------------------- """
 
@@ -97,30 +112,39 @@ def retrieve_musics_from_bookmarks(position: int) -> List[Dict]:
     try:
         with open(path) as bookmark_file:
             bookmark_data = json.load(bookmark_file)
+    except FileNotFoundError:
+        logger.error("Bookmark file not found. Exiting.")
+        exit(1)
+    except json.JSONDecodeError as e:
+        logger.error(f"Unable to decode JSON: {e}. Exiting.")
+        exit(1)
     except Exception as e:
-        raise Exception(f"[ERROR] - Unable to open the bookmark file: {e}. Exiting.")
+        logger.error(f"An unexpected error occurred: {e}. Exiting.")
+        exit(1)
 
     # Extract music URLs from specified bookmark position
     try:
         music_data = bookmark_data["roots"]["bookmark_bar"]["children"][position]["children"]
-    except Exception as e:
-        raise Exception(f"[ERROR] - Unable to extract the music folder: {e}. Exiting.")
+    except (KeyError, IndexError) as e:
+        logger.error(f"Unable to extract the music folder: {e}. Exiting.")
+        exit(1)
 
     return music_data
 
 
-def download_cover_to_hdd(cover_name: str, cover_url: str):
-    """ Download the cover image and save it to the local hard drive. """
+def download_cover_local(cover_name: str, cover_url: str):
+    """ Download the cover image and save it locally """
 
     try:
         urllib.request.urlretrieve(cover_url, f"{cover_name}.png")
     except URLError as e:
-        raise Exception(f"[ERROR] - Failed to download cover from {cover_url}: {e}")
+        logger.error(f"Failed to download cover from {cover_url}: {e}")
+        exit(1)
     except Exception as e:
-        raise Exception(f"An error occurred while downloading the cover: {e}")
+        logger.error(f"An error occurred while downloading the cover: {e}")
+        exit(1)
 
-
-def fetch_spotify_metadata(title: str, artist: str) -> Dict[str, Any]:
+def fetch_spotify_metadata(artist: str, title: str) -> Dict[str, Any]:
     """ Retrieve metadata for a song from the Spotify API using its title and artist. """
 
     # Default metadata values
@@ -197,8 +221,8 @@ def add_metadata_to_music(music_name: str, metadata: Dict[str, Any]):
         # Remove temporarily downloaded cover image
         os.remove(cover_name)
     except Exception as e:
-        raise Exception(f"An error occurred while adding metadata: {e}")
-
+        logger.error(f"An error occurred while adding metadata: {e}")
+        exit(1)
 
 def download_music(music_url: str, music_name: str) -> bool:
     """ Download a music from the given URL and save it to the specified directory. """
@@ -211,29 +235,25 @@ def download_music(music_url: str, music_name: str) -> bool:
         with yt_dlp.YoutubeDL(YOUTUBE_DL_OPTIONS) as ydl:
             ydl.download([music_url])
 
-        print("\nMusic downloaded successfully.")
-
+        logger.info("Music downloaded successfully.")
         return True
-    except Exception as e:
-        print(f"An error occurred during the download: {e}")
 
-        return False
+    except Exception as e:
+        logger.error(f"An error occurred during the download: {e}")
+
+    return False
 
 
 def main():
     print("\n=== THIS PROGRAM ONLY WORKS FOR CHROME ON WINDOWS =============================================\n")
 
-    # Get 'music' folder bookmark position in Chrome from user
-    try:
-        bookmark_pos = int(input("*** Position of 'music' folder in bookmarks: "))
-    except ValueError as e:
-        raise ValueError(f"Invalid input. Please enter a valid integer position. Error: {e}")
-
     # Retrieve list of music dictionaries from bookmarks
-    musics_list: List[Dict] = retrieve_musics_from_bookmarks(bookmark_pos)
+    musics_list: List[Dict] = retrieve_musics_from_bookmarks(config.MUSIC_BOOKMARK_POSITION)
 
     # Download all musics files
-    for music_dict in tqdm(musics_list, ncols=70, desc="Downloading Music"):
+    for music_dict in tqdm(musics_list, ncols=70, desc="Downloading Music", file=sys.stdout):
+        print("\n----------------------------------------------------------------------")
+
         # Extract music information
         music_url = music_dict.get("url")
         music_name = music_dict.get("name")
@@ -241,21 +261,28 @@ def main():
         # Attempt to download music file
         if download_music(music_url, music_name):
 
-            # Extract artist and title from music name following Chrome bookmark notation
-            artist = music_name.split(" - ")[0]
-            title = music_name.split(" - ")[1]
+            # Load extraction method
+            extraction_method: Dict = config.MUSIC_NAMING_CONVENTION
+
+            # Extracted data
+            try:
+                data = music_name.split(extraction_method["separation"])
+                artist, title = data[extraction_method["artist"]], data[extraction_method["title"]]
+            except (KeyError, IndexError) as e:
+                logger.error(f"Error: {e}. Please check the extraction method. Exiting.")
+                exit(1)
 
             # Fetch Spotify metadata
-            metadata = fetch_spotify_metadata(title, artist)
+            metadata = fetch_spotify_metadata(artist, title)
 
             # Download cover image
             if metadata.get("cover_url"):
-                download_cover_to_hdd(music_name, metadata["cover_url"])
+                download_cover_local(music_name, metadata.get("cover_url"))
 
             # Add metadata to downloaded music file
             add_metadata_to_music(music_name, metadata)
 
-            print("Metadata added successfully.")
+            logger.info("Metadata added successfully. \n")
 
     print("\n=== PROCESS COMPLETED =========================================================================\n")
 
