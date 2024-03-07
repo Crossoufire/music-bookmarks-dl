@@ -45,7 +45,8 @@ YOUTUBE_DL_OPTIONS = {
     }]}
 
 # Default path for downloading music files
-MUSIC_DIR = config.MUSIC_DIRECTORY
+script_dir = os.path.dirname(os.path.abspath(__file__))
+MUSIC_DIR = os.path.join(script_dir, config.MUSIC_DIRECTORY)
 os.makedirs(MUSIC_DIR, exist_ok=True)
 
 # Create logger
