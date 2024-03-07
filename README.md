@@ -23,7 +23,7 @@ metadata to the downloaded music files using the Spotify API.
 Before you begin, ensure you have met the following requirements:
 
 - Python 3.9+
-- Spotify API credentials (client ID and client secret)
+- Spotify API credentials (`client-ID` and `client-secret`)
 - `ffmpeg` installed and added to the system path
 
 
@@ -31,8 +31,8 @@ Before you begin, ensure you have met the following requirements:
 
 1. Clone the repository and install dependencies
 ```bash
-git clone https://github.com/Crossoufire/music_bookmark_ddl.git
-cd music_bookmark_ddl
+git clone https://github.com/Crossoufire/music-bookmarks-dl.git
+cd music-bookmarks-dl
 pip install -r requirements.txt
 ```
 
@@ -42,7 +42,7 @@ SPOTIFY_CLIENT_ID=<your_spotify_client_id>
 SPOTIFY_CLIENT_SECRET=<your_spotify_client_secret>
 
 FFMPEG_LOCATION=<your_ffmpeg_location> (default: "/usr/bin/ffmpeg")
-CHROME_BOOKMARK_PATH=<path_to_your_chrome_bookmark_json_file>
+CHROME_BOOKMARK_PATH=<'/mnt/c/Users/<YOUR-USERNAME>/AppData/Local/Google/Chrome/User Data/Default/Bookmarks'>
 
 MUSIC_DIRECTORY=<path_to_your_music_directory> (default: "downloaded_musics")
 MUSIC_BOOKMARK_POSITION=<position_in_bookmark> (default: 0)
@@ -54,10 +54,10 @@ MUSIC_TITLE_POSITION=<title_position_after_splitting> (default: 1)
 
 4. Run the script
 ```
-python music_downloader.py
+python main.py
 ```
 
-## Example
+## Examples
 - If your files are named `artist - title` (e.g., `sum 41 - in to deep`), the configuration would be
 ```
 MUSIC_SEPARATION=" - "

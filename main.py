@@ -10,7 +10,6 @@ import eyed3
 import mutagen.id3
 import spotipy
 import yt_dlp
-from dotenv import load_dotenv
 from mutagen.mp3 import MP3
 from spotipy.oauth2 import SpotifyClientCredentials
 from tqdm import tqdm
@@ -24,9 +23,6 @@ config = Config()
 
 # Suppress non-error warnings from eyed3 library
 eyed3.log.setLevel("ERROR")
-
-# Load environment variables from <.env> file
-load_dotenv()
 
 # Spotify API configuration using environment variables
 SP = spotipy.Spotify(
@@ -51,9 +47,6 @@ YOUTUBE_DL_OPTIONS = {
 # Default path for downloading music files
 MUSIC_DIR = config.MUSIC_DIRECTORY
 os.makedirs(MUSIC_DIR, exist_ok=True)
-
-# Default path for Chrome bookmarks
-PATH = config.CHROME_BOOKMARK_PATH
 
 # Create logger
 logger = logging.getLogger(__name__)
@@ -103,14 +96,11 @@ def levenshtein_dist_percent(str1, str2):
 
 
 def retrieve_musics_from_bookmarks(position: int) -> List[Dict]:
-    """ Retrieve music URLs from Chrome bookmarks and return a list of dictionaries. """
-
-    # Expand default path
-    path = os.path.expanduser(PATH)
+    """ Retrieve music URLs from Chrome bookmarks and return a list of dictionaries """
 
     # Read JSON bookmark data into dict
     try:
-        with open(path) as bookmark_file:
+        with open(config.CHROME_BOOKMARK_PATH) as bookmark_file:
             bookmark_data = json.load(bookmark_file)
     except FileNotFoundError:
         logger.error("Bookmark file not found. Exiting.")

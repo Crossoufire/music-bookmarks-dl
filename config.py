@@ -1,14 +1,16 @@
 import os
 from dotenv import load_dotenv
 
+# Load <.env> file
 load_dotenv()
+
 
 class Config:
     """ Config class for environment variables """
 
     # Spotify information
-    SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID")
-    SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET")
+    SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID") or "client-id"
+    SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET") or "client-secret"
 
     # Chrome bookmark and FFMPEG path
     CHROME_BOOKMARK_PATH = os.environ.get("CHROME_BOOKMARK_PATH")
