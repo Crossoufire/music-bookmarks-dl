@@ -58,13 +58,13 @@ python main.py
 ```
 
 ## Examples
-- If your files are named `artist - title` (e.g., `sum 41 - in to deep`), the configuration would be
+- If your files are named `artist - title` (e.g., `sum 41 - in too deep`), the configuration would be
 ```
 MUSIC_SEPARATION=" - "
 MUSIC_ARTIST_POSITION=0
 MUSIC_TITLE_POSITION=1
 ```
-- If your files are named `title ; artist` (e.g., `shadow of the day ; Linkin Park`), the configuration would be
+- If your files are named `title ; artist` (e.g., `Shadow of the Day ; Linkin Park`), the configuration would be
 ```
 MUSIC_SEPARATION=" ; "
 MUSIC_ARTIST_POSITION=1
