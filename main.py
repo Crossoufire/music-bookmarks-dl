@@ -18,13 +18,13 @@ from config import Config
 
 """ --- PARAMETERS ------------------------------------------------------------------------------------------ """
 
-# Load configuration
+# Config and logger
 config = Config()
-
-# Suppress non-error warnings from eyed3 library
 eyed3.log.setLevel("ERROR")
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
-# Spotify API configuration using environment variables
+# Spotify API configuration
 SP = spotipy.Spotify(
     auth_manager=SpotifyClientCredentials(
         client_id=config.SPOTIFY_CLIENT_ID,
@@ -32,7 +32,7 @@ SP = spotipy.Spotify(
     )
 )
 
-# Options for youtube-dl, specifying audio format and post-processing settings
+# Youtube-dl options: audio format and post-processing
 YOUTUBE_DL_OPTIONS = {
     "ffmpeg_location": config.FFMPEG_LOCATION,
     "format": "bestaudio/best",
@@ -41,19 +41,16 @@ YOUTUBE_DL_OPTIONS = {
     "postprocessors": [{
         "key": "FFmpegExtractAudio",
         "preferredcodec": "mp3",
-        "preferredquality": "192"
-    }]}
+        "preferredquality": "192",
+    }]
+}
 
 # Default path for downloading music files
 script_dir = os.path.dirname(os.path.abspath(__file__))
 MUSIC_DIR = os.path.join(script_dir, config.MUSIC_DIRECTORY)
 os.makedirs(MUSIC_DIR, exist_ok=True)
 
-# Create logger
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-# Set up console handler to send logs to stdout
+# Set up handler to send logs to stdout
 console_handler = logging.StreamHandler(stream=sys.stdout)
 formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
 console_handler.setFormatter(formatter)
@@ -62,44 +59,9 @@ logger.addHandler(console_handler)
 """ --------------------------------------------------------------------------------------------------------- """
 
 
-def levenshtein_dist_percent(str1, str2):
-    """ Calculate the levenshtein distance (as a percentage) to fetch the best match from the spotify API """
-
-    len_str1 = len(str1) + 1
-    len_str2 = len(str2) + 1
-
-    # Initialize a matrix to store distances
-    matrix = [[0] * len_str2 for _ in range(len_str1)]
-
-    # Initialize first row and column
-    for i in range(len_str1):
-        matrix[i][0] = i
-
-    for j in range(len_str2):
-        matrix[0][j] = j
-
-    # Fill in matrix based on Levenshtein distance algorithm
-    for i in range(1, len_str1):
-        for j in range(1, len_str2):
-            cost = 0 if str1[i - 1] == str2[j - 1] else 1
-
-            # Deletion, Insertion, Substitution
-            matrix[i][j] = min(matrix[i - 1][j] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j - 1] + cost)
-
-    # Calculate Levenshtein distance
-    distance = matrix[-1][-1]
-
-    # Calculate percentage
-    max_len = max(len_str1 - 1, len_str2 - 1)
-    distance_percentage = (1 - distance / max_len) * 100
-
-    return distance_percentage
-
-
 def retrieve_musics_from_bookmarks(position: int) -> List[Dict]:
-    """ Retrieve music URLs from Chrome bookmarks and return a list of dictionaries """
+    """ Fetch the music URLs from the Chrome bookmarks and return a list of dictionaries """
 
-    # Read JSON bookmark data into dict
     try:
         with open(config.CHROME_BOOKMARK_PATH) as bookmark_file:
             bookmark_data = json.load(bookmark_file)
@@ -113,7 +75,7 @@ def retrieve_musics_from_bookmarks(position: int) -> List[Dict]:
         logger.error(f"An unexpected error occurred: {e}. Exiting.")
         exit(1)
 
-    # Extract music URLs from specified bookmark position
+    # Extract music URLs
     try:
         music_data = bookmark_data["roots"]["bookmark_bar"]["children"][position]["children"]
     except (KeyError, IndexError) as e:
@@ -135,10 +97,10 @@ def download_cover_local(cover_name: str, cover_url: str):
         logger.error(f"An error occurred while downloading the cover: {e}")
         exit(1)
 
-def fetch_spotify_metadata(artist: str, title: str) -> Dict[str, Any]:
-    """ Retrieve metadata for a song from the Spotify API using its title and artist. """
 
-    # Default metadata values
+def fetch_spotify_metadata(artist: str, title: str) -> Dict[str, Any]:
+    """ Retrieve the metadata for a song using the Spotify API with the title and artist """
+
     metadata = {
         "artist": artist,
         "title": title,
@@ -147,26 +109,16 @@ def fetch_spotify_metadata(artist: str, title: str) -> Dict[str, Any]:
         "cover_url": None,
     }
 
-    # Use Spotify API to search for song title
-    search_results = SP.search(q=title, limit=10)
-
+    search_results = SP.search(q=f"track {title} artist {artist}", limit=10)
     if search_results:
-        lev_dist_percent = []
-        for track in search_results["tracks"]["items"]:
-            # Calculate Levenshtein distance for each track's artist
-            artiste_API = track["artists"][0]["name"].lower()
-            lev_dist_percent.append(levenshtein_dist_percent(artiste_API, artist.strip().lower()))
-
-        # Identify track with highest Levenshtein distance
-        min_index = min(range(len(lev_dist_percent)), key=lambda x: lev_dist_percent[x])
-        selected_track  = search_results["tracks"]["items"][min_index]
+        selected_track = search_results["tracks"]["items"][0]
 
         # Extract metadata from selected track
         metadata["album"] = selected_track["album"]["name"]
         metadata["cover_url"] = selected_track["album"]["images"][0]["url"]
         metadata["year"] = selected_track["album"]["release_date"]
 
-        # If precision is higher than 'year', extract only 'year'
+        # If precision higher than `year`: extract only `year`
         if selected_track["album"]["release_date_precision"] != "year":
             metadata["year"] = selected_track["album"]["release_date"].split("-")[0]
 
@@ -174,10 +126,10 @@ def fetch_spotify_metadata(artist: str, title: str) -> Dict[str, Any]:
 
 
 def add_metadata_to_music(music_name: str, metadata: Dict[str, Any]):
-    """ Add metadata to the downloaded music file. """
+    """ Add metadata to the downloaded music file """
 
     # Define paths for music file and cover image
-    mp3_path = os.path.join(MUSIC_DIR, f"{music_name}.mp3")
+    mp3_path = os.path.join(str(MUSIC_DIR), f"{music_name}.mp3")
     cover_name = f"{music_name}.png"
 
     try:
@@ -198,8 +150,13 @@ def add_metadata_to_music(music_name: str, metadata: Dict[str, Any]):
         audio = MP3(mp3_path, ID3=mutagen.id3.ID3)
 
         # Add cover image to tags
-        cover_image  = mutagen.id3.APIC(encoding=3, mime="image/png", type=3, desc="Cover",
-                                        data=open(cover_name, "rb").read())
+        cover_image = mutagen.id3.APIC(
+            encoding=3,
+            mime="image/png",
+            type=3,
+            desc="Cover",
+            data=open(cover_name, "rb").read(),
+        )
         audio.tags.add(cover_image)
 
         # Add year to tags
@@ -215,8 +172,9 @@ def add_metadata_to_music(music_name: str, metadata: Dict[str, Any]):
         logger.error(f"An error occurred while adding metadata: {e}")
         exit(1)
 
+
 def download_music(music_url: str, music_name: str) -> bool:
-    """ Download a music from the given URL and save it to the specified directory. """
+    """ Download a music from a given URL and save it to the specified directory """
 
     try:
         # Set output template for downloaded music file
@@ -226,7 +184,7 @@ def download_music(music_url: str, music_name: str) -> bool:
         with yt_dlp.YoutubeDL(YOUTUBE_DL_OPTIONS) as ydl:
             ydl.download([music_url])
 
-        logger.info("Music downloaded successfully.")
+        logger.info("Music successfully downloaded")
         return True
 
     except Exception as e:
@@ -238,14 +196,14 @@ def download_music(music_url: str, music_name: str) -> bool:
 def main():
     print("\n=== THIS PROGRAM ONLY WORKS FOR CHROME ON WINDOWS =============================================\n")
 
-    # Retrieve list of music dictionaries from bookmarks
+    # Fetch music from bookmarks
     musics_list: List[Dict] = retrieve_musics_from_bookmarks(config.MUSIC_BOOKMARK_POSITION)
 
-    # Download all musics files
-    for music_dict in tqdm(musics_list, ncols=70, desc="Downloading Music", file=sys.stdout):
+    # Download musics files
+    for music_dict in tqdm(musics_list, ncols=70, desc="Downloading Musics", file=sys.stdout):
         print("\n----------------------------------------------------------------------")
 
-        # Extract music information
+        # Extract music info
         music_url = music_dict.get("url")
         music_name = music_dict.get("name")
 
@@ -253,7 +211,7 @@ def main():
         if download_music(music_url, music_name):
 
             # Load extraction method
-            extraction_method: Dict = config.MUSIC_NAMING_CONVENTION
+            extraction_method = config.MUSIC_NAMING_CONVENTION
 
             # Extracted data
             try:
