@@ -1,20 +1,21 @@
 [tool.poetry]
 name = "ytmarkdl"
-version = "1.0"
+version = "2.0"
 description = "Download Youtube music from Chrome bookmarks"
 authors = ["Crossoufire"]
 license = "MIT"
 readme = "README.md"
 package-mode = false
 
+
 [tool.poetry.dependencies]
-python = "^3.11"
 eyed3 = "^0.9.7"
+rich = "^13.9.4"
 spotipy = "^2.24.0"
 mutagen = "^1.47.0"
-tqdm = "^4.66.5"
-yt-dlp = "^2024.8.6"
+yt-dlp = "^2024.11.4"
 python-dotenv = "^1.0.1"
+python = "^3.10 || ^3.11 || ^3.12"
 
 
 [build-system]

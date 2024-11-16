@@ -152,7 +152,7 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
-# --- Project Specifics -----------
+# --- Project Specifics ------------------------------------------------------
 .idea
 downloaded_musics
 poetry.lock
