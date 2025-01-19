@@ -155,4 +155,5 @@ cython_debug/
 # --- Project Specifics ------------------------------------------------------
 .idea
 downloaded_musics
-poetry.lock
+uv.lock
+.python-version

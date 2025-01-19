@@ -1,37 +1,39 @@
 from __future__ import annotations
 
-import re
 import os
 import json
+from pathlib import Path
 import subprocess
 from dataclasses import dataclass
-from typing import List, Optional, Dict, TypedDict
+from typing import List, Optional, Dict
 
 import yt_dlp
 import spotipy
 import requests
 from mutagen.mp3 import MP3
+from dotenv import load_dotenv
 from rich.console import Console
 from spotipy.oauth2 import SpotifyClientCredentials
 from rich.progress import Progress, TaskID, SpinnerColumn
 from mutagen.id3 import ID3, APIC, TIT2, TPE1, TALB, TYER
 
-from config import Config
 
-
-# Initialize Rich console
-console = Console()
-
-
-class ChromeBookmark(TypedDict):
-    url: str
-    name: str
-
-
-class Pattern(TypedDict):
-    artist: int
+@dataclass
+class Pattern:
     title: int
+    artist: int
     separator: str
+
+
+@dataclass
+class Config:
+    FFMPEG_PATH: str
+    MUSIC_DIRECTORY: str
+    BOOKMARK_POSITION: int
+    SPOTIFY_CLIENT_ID: str
+    SPOTIFY_CLIENT_SECRET: str
+    CHROME_BOOKMARK_PATH: Path
+    NAMING_PATTERN: Pattern
 
 
 @dataclass
@@ -40,16 +42,6 @@ class Track:
     name: str
     title: str
     artist: str
-
-    @classmethod
-    def from_chrome_bookmark(cls, bookmark: ChromeBookmark, pattern: Pattern) -> Track:
-        parts = bookmark["name"].split(pattern["separator"])
-        return cls(
-            url=bookmark["url"],
-            name=bookmark["name"],
-            title=parts[pattern["title"]],
-            artist=parts[pattern["artist"]],
-        )
 
 
 @dataclass
@@ -61,9 +53,30 @@ class TrackMetadata:
     cover_url: str = None
 
 
-class MusicDownloader:
+class BookmarkParser:
     def __init__(self, config: Config):
-        self.config = config
+        self.pattern = config.NAMING_PATTERN
+        self.bookmark_path = config.CHROME_BOOKMARK_PATH
+        self.bookmark_position = config.BOOKMARK_POSITION
+
+    def get_tracks(self) -> List[Track]:
+        with open(self.bookmark_path) as fp:
+            bookmarks = json.load(fp)
+        music_folder = bookmarks["roots"]["bookmark_bar"]["children"][self.bookmark_position]["children"]
+        return [self._create_track(bookmark) for bookmark in music_folder]
+
+    def _create_track(self, bookmark) -> Track:
+        parts = bookmark["name"].split(self.pattern.separator)
+        return Track(
+            url=bookmark["url"],
+            name=bookmark["name"],
+            title=parts[self.pattern.title],
+            artist=parts[self.pattern.artist],
+        )
+
+
+class SpotifyMetadataFetcher:
+    def __init__(self, config: Config):
         self.spotify = spotipy.Spotify(
             auth_manager=SpotifyClientCredentials(
                 client_id=config.SPOTIFY_CLIENT_ID,
@@ -71,27 +84,8 @@ class MusicDownloader:
             )
         )
 
-        # Ensure music directory exists
-        os.makedirs(config.MUSIC_DIRECTORY, exist_ok=True)
-
-        # Setup yt-dlp
-        self.yt_options = dict(
-            quiet=True,
-            extractaudio=True,
-            format="bestaudio/best",
-            ffmpeg_location=config.FFMPEG_PATH,
-        )
-
-    def get_bookmarked_tracks(self) -> List[Track]:
-        with open(self.config.CHROME_BOOKMARK_PATH) as fp:
-            bookmarks = json.load(fp)
-
-        music_folder = bookmarks["roots"]["bookmark_bar"]["children"][self.config.BOOKMARK_POSITION]["children"]
-
-        return [Track.from_chrome_bookmark(bm, self.config.NAMING_PATTERN) for bm in music_folder]
-
-    def get_spotify_metadata(self, track: Track) -> Optional[TrackMetadata]:
-        results = self.spotify.search(q=f"track {track.title} artist {track.artist}", limit=10)
+    def get_metadata(self, track: Track) -> Optional[TrackMetadata]:
+        results = self.spotify.search(q=f"track:{track.title} artist:{track.artist}", limit=10)
         if not results or not results["tracks"]["items"]:
             return None
 
@@ -101,53 +95,68 @@ class MusicDownloader:
             album=track_info["album"]["name"],
             artist=track_info["artists"][0]["name"],
             year=track_info["album"]["release_date"][:4],
-            cover_url=track_info["album"]["images"][0]["url"] if track_info["album"]["images"] else None,
+            cover_url=track_info["album"]["images"][0]["url"] if track_info["album"]["images"] else None
         )
 
-    def download_track(self, track: Track, task_id: TaskID, progress: Progress) -> bool:
-        def progress_hook(yt_dlp: Dict):
-            if yt_dlp["status"] == "downloading":
-                downloaded = yt_dlp.get("downloaded_bytes", 0)
-                total = yt_dlp.get("total_bytes") or yt_dlp.get("total_bytes_estimate", 0)
 
-                if total > 0:
-                    progress.update(task_id, completed=downloaded, total=total)
-                progress.update(task_id, description=f"[green]Downloading: '{track.name}'")
+class AudioDownloader:
+    def __init__(self, config: Config):
+        self.ffmpeg_path = config.FFMPEG_PATH
+        self.music_dir = config.MUSIC_DIRECTORY
+        os.makedirs(self.music_dir, exist_ok=True)
 
-        self.yt_options["outtmpl"] = f"{self.config.MUSIC_DIRECTORY}/{track.name}.%(ext)s"
-        self.yt_options["progress_hooks"] = [progress_hook]
+    def download(self, track: Track, task_id: TaskID, progress: Progress) -> Optional[str]:
+        options = dict(
+            quiet=True,
+            extractaudio=True,
+            format="bestaudio/best",
+            ffmpeg_location=self.ffmpeg_path,
+            outtmpl=f"{self.music_dir}/{track.name}.%(ext)s",
+            progress_hooks=[lambda d: self._progress_hook(d, track, task_id, progress)],
+        )
 
         try:
-            with yt_dlp.YoutubeDL(self.yt_options) as ydl:
+            with yt_dlp.YoutubeDL(options) as ydl:
+                info = ydl.extract_info(track.url, download=False)
+                file_extension = info.get("ext", "unknown")
                 ydl.download([track.url])
-            return True
+                return file_extension
         except Exception as e:
-            console.print(f"[red]Error downloading '{track.name}': {e}")
-            return False
+            print(f"Error downloading '{track.name}': {e}")
+            return None
 
-    def convert_to_mp3(self, track: Track, task_id: TaskID, progress: Progress):
-        input_file = f"{self.config.MUSIC_DIRECTORY}/{track.name}.webm"
-        output_file = f"{self.config.MUSIC_DIRECTORY}/{track.name}.mp3"
+    @staticmethod
+    def _progress_hook(d: Dict, track: Track, task_id: TaskID, progress: Progress):
+        if d["status"] == "downloading":
+            downloaded = d.get("downloaded_bytes", 0)
+            total = d.get("total_bytes") or d.get("total_bytes_estimate", 0)
+            if total > 0:
+                progress.update(task_id, completed=downloaded, total=total)
+            progress.update(task_id, description=f"[green]Downloading: '{track.name}'")
 
-        # Get duration for progress tracking
-        probe_cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of",
-                     "default=noprint_wrappers=1:nokey=1", input_file]
-        duration = float(subprocess.check_output(probe_cmd).decode())
-        progress.update(task_id, description=f"[green]Converting: '{track.name}'", total=duration)
 
-        cmd = ["ffmpeg", "-i", input_file, "-vn", "-ar", "44100", "-b:a", "192k", "-progress", "pipe:1", "-y", output_file]
-        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+class AudioConverter:
+    def __init__(self, config: Config):
+        self.music_dir = config.MUSIC_DIRECTORY
 
-        for line in process.stdout:
-            if match := re.search(r"out_time_us=(\d+)", line):
-                progress.update(task_id, completed=int(match.group(1)) / 1000000)
+    def convert_to_mp3(self, track: Track, original_extension: str):
+        input_file = f"{self.music_dir}/{track.name}.{original_extension}"
+        output_file = f"{self.music_dir}/{track.name}.mp3"
 
-        process.wait()
+        subprocess.run([
+            "ffmpeg", "-i", input_file,
+            "-vn", "-ar", "44100", "-b:a", "192k",
+            "-y", output_file
+        ], capture_output=True)
+
         os.remove(input_file)
 
-    def add_metadata(self, track_name: str, metadata: TrackMetadata):
-        filepath = f"{self.config.MUSIC_DIRECTORY}/{track_name}.mp3"
+        return output_file
 
+
+class MetadataWriter:
+    @staticmethod
+    def write_to_disk(filepath: str, metadata: TrackMetadata):
         audio = MP3(filepath, ID3=ID3)
         if not audio.tags:
             audio.add_tags()
@@ -164,44 +173,69 @@ class MusicDownloader:
         audio.save()
 
 
+class MusicProcessor:
+    def __init__(self, config: Config):
+        self.console = Console()
+        self.metadata_writer = MetadataWriter()
+        self.converter = AudioConverter(config)
+        self.downloader = AudioDownloader(config)
+        self.bookmark_parser = BookmarkParser(config)
+        self.metadata_fetcher = SpotifyMetadataFetcher(config)
+
+    def process_tracks(self):
+        tracks = self.bookmark_parser.get_tracks()
+
+        self.console.print(f"[blue]i[/blue] Found {len(tracks)} tracks to download\n")
+
+        progress = Progress(SpinnerColumn(), *Progress.get_default_columns(), console=self.console)
+
+        with progress:
+            overall_task = progress.add_task(f"[cyan]Processing {len(tracks)} tracks", total=len(tracks))
+
+            for track in tracks:
+                process_task = progress.add_task(f"[green]Processing: '{track.name}'", total=100)
+
+                # Download
+                if extension := self.downloader.download(track, process_task, progress):
+                    self.console.print(f"[green]✓[/green] Downloaded: '{track.name}'")
+
+                    # Convert
+                    output_file = self.converter.convert_to_mp3(track, extension)
+                    self.console.print(f"[green]✓[/green] Converted to MP3")
+
+                    # Add metadata
+                    if metadata := self.metadata_fetcher.get_metadata(track):
+                        self.metadata_writer.write_to_disk(output_file, metadata)
+                        self.console.print(f"[green]✓[/green] Added metadata\n")
+                    else:
+                        self.console.print(f"[yellow]![/yellow] No metadata found\n")
+
+                progress.update(overall_task, advance=1)
+                progress.remove_task(process_task)
+
+            progress.remove_task(overall_task)
+        self.console.print("[green]✓[/green] All tracks processed!")
+
+
 def main():
-    console.print("[blue]i[/blue] This script will download music from your bookmarks.")
-    console.print("[blue]i[/blue] This script only works with Chrome bookmarks on Windows.")
+    load_dotenv()
 
-    downloader = MusicDownloader(Config())
-    tracks = downloader.get_bookmarked_tracks()
-
-    console.print("[blue]i[/blue] Retrieving music from bookmarks...")
-    console.print(f"[blue]i[/blue] Found {len(tracks)} tracks to download\n")
-
-    # Setup progress bars
-    progress = Progress(
-        SpinnerColumn(),
-        *Progress.get_default_columns(),
-        console=console,
+    config = Config(
+        SPOTIFY_CLIENT_ID=os.environ.get("SPOTIFY_CLIENT_ID") or "client-id",
+        SPOTIFY_CLIENT_SECRET=os.environ.get("SPOTIFY_CLIENT_SECRET") or "client-secret",
+        FFMPEG_PATH=os.environ.get("FFMPEG_PATH") or "/usr/bin/ffmpeg",
+        CHROME_BOOKMARK_PATH=Path(os.environ.get("CHROME_BOOKMARK_PATH")),
+        BOOKMARK_POSITION=int(os.environ.get("BOOKMARK_POSITION", 0)),
+        MUSIC_DIRECTORY=os.environ.get("MUSIC_DIRECTORY") or "./downloaded_musics",
+        NAMING_PATTERN=Pattern(
+            title=int(os.environ.get("TITLE_POSITION", 1)),
+            artist=int(os.environ.get("ARTIST_POSITION", 0)),
+            separator=os.environ.get("MUSIC_SEPARATOR") or " - ",
+        ),
     )
 
-    with progress:
-        overall_task = progress.add_task(f"[cyan]Processing {len(tracks)} tracks", total=len(tracks))
-
-        for track in tracks:
-            process_task = progress.add_task(f"[green]Processing: '{track.name}'", total=100)
-
-            if downloader.download_track(track, process_task, progress):
-                console.print(f"[green]✓[/green] Successfully downloaded: '{track.name}'")
-                downloader.convert_to_mp3(track, process_task, progress)
-                console.print(f"[green]✓[/green] Successfully converted")
-                if metadata := downloader.get_spotify_metadata(track):
-                    downloader.add_metadata(track.name, metadata)
-                    console.print(f"[green]✓[/green] Successfully added metadata\n")
-                else:
-                    console.print(f"[yellow]![/yellow] No Spotify metadata found\n")
-
-            progress.update(overall_task, advance=1)
-            progress.remove_task(process_task)
-
-        progress.remove_task(overall_task)
-    console.print("[green]✓[/green] All tracks processed!")
+    processor = MusicProcessor(config)
+    processor.process_tracks()
 
 
 if __name__ == "__main__":
